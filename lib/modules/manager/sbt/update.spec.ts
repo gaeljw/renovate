@@ -47,5 +47,29 @@ describe('modules/manager/sbt/update', () => {
 
       expect(bumpedContent).toEqual(content);
     });
+
+    it('should do simple replacement', () => {
+      const res = updateDependency({
+        fileContent: simpleContent,
+        upgrade: {
+          updateType: 'replacement',
+          depName: 'org.example:foo',
+          currentValue: '0.0.1',
+          fileReplacePosition: 905,
+          newName: 'org.example.new:foo',
+          newValue: '0.0.1',
+        },
+      });
+
+      const project = new XmlDocument(res);
+      expect(
+        project.valueWithPath(
+          'dependencyManagement.dependencies.dependency.groupId',
+        ),
+      ).toBe('org.example.new');
+    });
+
+    // TODO test avec variable partagée
+    // TODO test sans changer value? est ce possible?
   });
 });
