@@ -2,6 +2,8 @@ import type { ReleaseType } from 'semver';
 import semver from 'semver';
 import { logger } from '../../../logger';
 import { escapeRegExp, regEx } from '../../../util/regex';
+import { doAutoReplace } from '../../../workers/repository/update/branch/auto-replace';
+import type { BranchUpgradeConfig } from '../../../workers/types';
 import type {
   BumpPackageVersionResult,
   UpdateDependencyConfig,
@@ -17,6 +19,7 @@ export function bumpPackageVersion(
     { bumpVersion, currentValue },
     'Checking if we should bump build.sbt version',
   );
+  logger.warn({ content }, 'bumpPackageVersion content');
   let bumpedContent = content;
   const bumpedVersion = semver.inc(currentValue, bumpVersion);
   if (!bumpedVersion) {
@@ -37,9 +40,97 @@ export function bumpPackageVersion(
   return { bumpedContent };
 }
 
+export async function updateDependency({
+  fileContent,
+  upgrade,
+}: UpdateDependencyConfig): Promise<string | null> {
+  const { depName, newName, currentValue, newValue, sharedVariableName } =
+    upgrade;
+
+  let updatedContent = fileContent;
+
+  if (upgrade.updateType === 'replacement') {
+    if (newName) {
+      const [oldGroupId, oldArtifactId] = depName!.split(':', 2);
+      const [newGroupId, newArtifactId] = newName.split(':', 2);
+
+      /*if (newValue) {
+        if (sharedVariableName) {
+          const pattern = new RegExp(
+            `"${escapeRegExp(oldGroupId)}"\\s*(%%?)\\s*"${escapeRegExp(oldArtifactId)}"`,
+            'g',
+          );
+
+          updatedContent = fileContent.replace(
+            pattern,
+            (match, percentSigns) => {
+              return `"${newGroupId}" ${percentSigns} "${newArtifactId}"`;
+            },
+          );
+
+          const patternSharedVariable = new RegExp(
+            `${escapeRegExp(sharedVariableName)}\\s*=\\s*"${currentValue!}"`,
+            'g',
+          );
+
+          updatedContent = updatedContent.replace(
+            patternSharedVariable,
+            `${sharedVariableName} = "${newValue}"`,
+          );
+        } else {
+          const pattern = new RegExp(
+            `"${escapeRegExp(oldGroupId)}"\\s*(%%?)\\s*"${escapeRegExp(oldArtifactId)}"\\s*%\\s*"${escapeRegExp(currentValue!)}"`,
+            'g',
+          );
+
+          updatedContent = fileContent.replace(
+            pattern,
+            (match, percentSigns) => {
+              return `"${newGroupId}" ${percentSigns} "${newArtifactId}" % "${newValue}"`;
+            },
+          );
+        }
+      } else {*/
+      const pattern = new RegExp(
+        `"${escapeRegExp(oldGroupId)}"\\s*(%%?)\\s*"${escapeRegExp(oldArtifactId)}"`,
+        'g',
+      );
+
+      updatedContent = fileContent.replace(pattern, (match, percentSigns) => {
+        return `"${newGroupId}" ${percentSigns} "${newArtifactId}"`;
+      });
+      //}
+    }
+  }
+
+  if (newName) {
+    return await doAutoReplace(
+      { ...upgrade, depName: newName } as BranchUpgradeConfig,
+      updatedContent,
+      false,
+      true,
+    );
+  } else {
+    return await doAutoReplace(
+      upgrade as BranchUpgradeConfig,
+      updatedContent,
+      false,
+      true,
+    );
+  }
+
+  // logger.debug(
+  //   { depName, newName, currentValue, newValue },
+  //   'Unable to apply replacement',
+  // );
+
+  // return xxx;
+}
+
 /*
 
-     "mode": "full",
+ WARN:  (repository=gaeljw/renovate-maven-sbt-replacement, baseBranch=main, packageFile=build.sbt, branch=renovate/junitversion)
+       "mode": "full",
        "detectGlobalManagerConfig": false,
        "detectHostRulesFromEnv": false,
        "useCloudMetadataServices": true,
@@ -151,16 +242,16 @@ export function bumpPackageVersion(
        "ignoreTests": false,
        "osvVulnerabilityAlerts": false,
        "pruneBranchAfterAutomerge": true,
-       "branchName": "renovate/org.scalatestplus-mockito-3-12-replacement",
+       "branchName": "renovate/junitversion",
        "additionalBranchPrefix": "",
-       "branchTopic": "{{{depNameSanitized}}}-replacement",
+       "branchTopic": "{{{groupSlug}}}",
        "commitMessage": "{{{commitMessagePrefix}}} {{{commitMessageAction}}} {{{commitMessageTopic}}} {{{commitMessageExtra}}} {{{commitMessageSuffix}}}",
        "commitBody": null,
        "commitBodyTable": false,
        "commitMessagePrefix": null,
-       "commitMessageAction": "Replace",
+       "commitMessageAction": "Update",
        "commitMessageTopic": "dependency {{depName}}",
-       "commitMessageExtra": "with {{newName}} {{#if isMajor}}{{{prettyNewMajor}}}{{else}}{{#if isSingleVersion}}{{{prettyNewVersion}}}{{else}}{{{newValue}}}{{/if}}{{/if}}",
+       "commitMessageExtra": "to {{#if isPinDigest}}{{{newDigestShort}}}{{else}}{{#if isMajor}}{{prettyNewMajor}}{{else}}{{#if isSingleVersion}}{{prettyNewVersion}}{{else}}{{#if newValue}}{{{newValue}}}{{else}}{{{newDigestShort}}}{{/if}}{{/if}}{{/if}}{{/if}}",
        "commitMessageSuffix": null,
        "prBodyTemplate": "{{{header}}}{{{table}}}{{{warnings}}}{{{notes}}}{{{changelogs}}}{{{configDescription}}}{{{controls}}}{{{footer}}}",
        "prTitle": null,
@@ -169,7 +260,7 @@ export function bumpPackageVersion(
        "prFooter": "This PR has been generated by [Renovate Bot](https://github.com/renovatebot/renovate).",
        "customizeDashboard": {},
        "hashedBranchLength": null,
-       "groupSlug": null,
+       "groupSlug": "junitversion",
        "labels": [],
        "addLabels": [],
        "assignees": [],
@@ -203,9 +294,7 @@ export function bumpPackageVersion(
          "Confidence": "{{#if newVersion}}[![confidence](https://developer.mend.io/api/mc/badges/confidence/{{datasource}}/{{replace '/' '%2f' packageName}}/{{{currentVersion}}}/{{{newVersion}}}?slim=true)](https://docs.renovatebot.com/merge-confidence/){{/if}}"
        },
        "prBodyColumns": ["Package", "Type", "Update", "Change", "Pending"],
-       "prBodyNotes": [
-         "This is a special PR that replaces `{{{depName}}}` with the community suggested minimal stable replacement version."
-       ],
+       "prBodyNotes": [],
        "suppressNotifications": [],
        "pruneStaleBranches": true,
        "unicodeEmoji": true,
@@ -250,27 +339,38 @@ export function bumpPackageVersion(
        "parentDir": "",
        "packageFileDir": "",
        "datasource": "sbt-package",
-       "depName": "org.scalatestplus:mockito-3-12",
-       "packageName": "org.scalatestplus:mockito-3-12_2.13",
-       "currentValue": "3.2.10.0",
-       "sourceUrl": "https://github.com/scalatest/scalatestplus-mockito",
+       "depName": "org.scalatestplus:junit-4-13",
+       "packageName": "org.scalatestplus:junit-4-13_2.13",
+       "currentValue": "3.2.18.0",
+       "sharedVariableName": "junitVersion",
+       "variableName": "junitVersion",
+       "sourceUrl": "https://github.com/scalatest/scalatestplus-junit",
        "registryUrl": "https://repo.maven.apache.org/maven2",
        "dependencyUrl": "https://repo.maven.apache.org/maven2/org/scalatestplus",
-       "currentVersion": "3.2.10.0",
-       "currentVersionTimestamp": "2021-09-17T01:55:10.000Z",
-       "currentVersionAgeInDays": 1506,
-       "fixedVersion": "3.2.10.0",
-       "depIndex": 1,
-       "updateType": "replacement",
-       "newName": "org.scalatestplus:mockito-4-11_2.13",
-       "newValue": "3.12.16.0",
-       "isReplacement": true,
-       "depNameSanitized": "org.scalatestplus-mockito-3-12",
-       "newNameSanitized": "org.scalatestplus-mockito-4-11_2.13",
-       "sourceRepoSlug": "scalatest-scalatestplus-mockito",
-       "sourceRepo": "scalatest/scalatestplus-mockito",
+       "currentVersion": "3.2.18.0",
+       "currentVersionTimestamp": "2024-02-01T09:57:32.000Z",
+       "currentVersionAgeInDays": 640,
+       "isSingleVersion": true,
+       "fixedVersion": "3.2.18.0",
+       "depIndex": 2,
+       "bucket": "non-major",
+       "newVersion": "3.2.19.1",
+       "newValue": "3.2.19.1",
+       "releaseTimestamp": "2025-03-17T07:21:09.000Z",
+       "newVersionAgeInDays": 230,
+       "newMajor": 3,
+       "newMinor": 2,
+       "newPatch": 19,
+       "updateType": "patch",
+       "isBreaking": false,
+       "libYears": 1.1202504122272958,
+       "isPatch": true,
+       "depNameSanitized": "org.scalatestplus-junit-4-13",
+       "newNameSanitized": undefined,
+       "sourceRepoSlug": "scalatest-scalatestplus-junit",
+       "sourceRepo": "scalatest/scalatestplus-junit",
        "sourceRepoOrg": "scalatest",
-       "sourceRepoName": "scalatestplus-mockito",
+       "sourceRepoName": "scalatestplus-junit",
        "baseDeps": [
          {
            "datasource": "maven",
@@ -289,7 +389,7 @@ export function bumpPackageVersion(
            "respectLatest": false,
            "currentVersion": "2.13.17",
            "currentVersionTimestamp": "2025-09-30T07:19:40.000Z",
-           "currentVersionAgeInDays": 32,
+           "currentVersionAgeInDays": 33,
            "fixedVersion": "2.13.17"
          },
          {
@@ -301,7 +401,7 @@ export function bumpPackageVersion(
            "updates": [
              {
                "updateType": "replacement",
-               "newName": "org.scalatestplus:mockito-4-11_2.13",
+               "newName": "org.scalatestplus:mockito-4-11",
                "newValue": "3.12.16.0",
                "branchName": "renovate/org.scalatestplus-mockito-3-12-replacement"
              }
@@ -313,70 +413,58 @@ export function bumpPackageVersion(
            "dependencyUrl": "https://repo.maven.apache.org/maven2/org/scalatestplus",
            "currentVersion": "3.2.10.0",
            "currentVersionTimestamp": "2021-09-17T01:55:10.000Z",
-           "currentVersionAgeInDays": 1506,
+           "currentVersionAgeInDays": 1507,
            "fixedVersion": "3.2.10.0"
+         },
+         {
+           "datasource": "sbt-package",
+           "depName": "org.scalatestplus:junit-4-13",
+           "packageName": "org.scalatestplus:junit-4-13_2.13",
+           "currentValue": "3.2.18.0",
+           "sharedVariableName": "junitVersion",
+           "variableName": "junitVersion",
+           "registryUrls": ["https://repo.maven.apache.org/maven2"],
+           "updates": [
+             {
+               "bucket": "non-major",
+               "newVersion": "3.2.19.1",
+               "newValue": "3.2.19.1",
+               "releaseTimestamp": "2025-03-17T07:21:09.000Z",
+               "newVersionAgeInDays": 230,
+               "newMajor": 3,
+               "newMinor": 2,
+               "newPatch": 19,
+               "updateType": "patch",
+               "isBreaking": false,
+               "libYears": 1.1202504122272958,
+               "branchName": "renovate/junitversion"
+             },
+             {
+               "updateType": "replacement",
+               "newName": "org.scalatestplus:junit-5-13",
+               "newValue": "3.12.19.0",
+               "branchName": "renovate/junitversion"
+             }
+           ],
+           "versioning": "ivy",
+           "warnings": [],
+           "sourceUrl": "https://github.com/scalatest/scalatestplus-junit",
+           "registryUrl": "https://repo.maven.apache.org/maven2",
+           "dependencyUrl": "https://repo.maven.apache.org/maven2/org/scalatestplus",
+           "currentVersion": "3.2.18.0",
+           "currentVersionTimestamp": "2024-02-01T09:57:32.000Z",
+           "currentVersionAgeInDays": 640,
+           "isSingleVersion": true,
+           "fixedVersion": "3.2.18.0"
          }
        ],
        "recreateClosed": false,
-       "displayFrom": "3.2.10.0",
-       "displayTo": "3.12.16.0",
+       "displayFrom": "3.2.18.0",
+       "displayTo": "3.2.19.1",
+       "prettyNewVersion": "v3.2.19.1",
+       "prettyNewMajor": "v3",
        "depTypes": undefined,
        "displayPending": "",
        "prettyDepType": "dependency"
 
-*/
-
-/*
-       scalaVersion := "2.13.17"
-
-       libraryDependencies += "org.scalatestplus" %% "mockito-3-12" % "3.2.10.0"
-*/
-
-export function updateDependency({
-  fileContent,
-  upgrade,
-}: UpdateDependencyConfig): string | null {
-  const { depName, newName, currentValue, newValue } = upgrade;
-
-  if (newName) {
-    const [oldGroupId, oldArtifactId] = depName!.split(':', 2);
-    const [newGroupId, newArtifactId] = newName.split(':', 2);
-
-    if (newValue) {
-      const pattern = new RegExp(
-        `"${escapeRegExp(oldGroupId)}"\\s*(%%?)\\s*"${escapeRegExp(oldArtifactId)}"\\s*%\\s*"${escapeRegExp(currentValue!)}"`,
-        'g',
-      );
-
-      const updatedContent = fileContent.replace(
-        pattern,
-        (match, percentSigns) => {
-          return `"${newGroupId}" ${percentSigns} "${newArtifactId}" % "${newValue}"`;
-        },
-      );
-
-      return updatedContent;
-    } else {
-      const pattern = new RegExp(
-        `"${escapeRegExp(oldGroupId)}"\\s*(%%?)\\s*"${escapeRegExp(oldArtifactId)}"`,
-        'g',
-      );
-
-      const updatedContent = fileContent.replace(
-        pattern,
-        (match, percentSigns) => {
-          return `"${newGroupId}" ${percentSigns} "${newArtifactId}"`;
-        },
-      );
-
-      return updatedContent;
-    }
-  }
-
-  logger.debug(
-    { depName, newName, currentValue, newValue },
-    'Unable to apply replacement',
-  );
-
-  return null;
-}
+       */
